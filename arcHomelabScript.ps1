@@ -1,5 +1,8 @@
 #Azure Arc Homelab healthcheck, startup, and shutdown script
 
+#Requires -Version 5.1
+#Requires -Modules GoogleCloud, Az.Compute, Az.ConnectedMachine
+
 Param(
     [Parameter(Mandatory = $true)] [string] $googleProjectName,
     [Parameter(Mandatory = $true)] [string] $azureResourceGroupName
