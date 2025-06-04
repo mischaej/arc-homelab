@@ -11,19 +11,31 @@ Param(
 function Get-Status 
 {
     $arc_homelab_resources = @()
+    $jobs = @()
 
-    Write-Host 'Getting VM status from Google Cloud...'
-    $gceinstances = Get-GceInstance -Project $googleProjectName
+    #Parallelized calls for Azure VMs, Azre Arc Machines, and Google Cloud VMs
+    Write-Host 'Getting Machine Statuses from Azure and Google Cloud...'
+    $jobs += Start-ThreadJob {Get-GceInstance -Project $using:googleProjectName}
+    $jobs += Start-ThreadJob {Get-AzVM -ResourceGroupName $using:azureResourceGroupName}
+    $jobs += Start-ThreadJob {Get-AzConnectedMachine -ResourceGroupName $using:azureResourceGroupName}
+    Wait-Job -Job $jobs | Out-Null
+
+    $Global:gceinstances = Receive-Job -Job $jobs[0]
+    $Global:azurevms = Receive-Job -Job $jobs[1]
+    $Global:arcmachines = Receive-Job -Job $jobs[2]
+    
+    #Write-Host 'Getting VM status from Google Cloud...'
+    #$gceinstances = Get-GceInstance -Project $googleProjectName
     foreach($gceinstance in $gceinstances)
     {
         $gceinstance | Add-Member -MemberType NoteProperty -Name 'HomelabResourceType' -Value 'GcVM'
         $gceinstance | Add-Member -MemberType NoteProperty -Name 'HomelabResourceStatus' -Value $gceinstance.status
         $arc_homelab_resources += $gceinstance
     }
-    Write-Host 'Done!' -ForegroundColor Green
+    #Write-Host 'Done!' -ForegroundColor Green
 
-    Write-Host 'Getting VM status from Azure...'
-    $azurevms = Get-AzVM -ResourceGroupName $azureResourceGroupName
+    #Write-Host 'Getting VM status from Azure...'
+    #$azurevms = Get-AzVM -ResourceGroupName $azureResourceGroupName
     foreach($azurevm in $azurevms)
     {
         $azurevmInstanceView = Get-AzVM -ResourceGroupName $azureResourceGroupName -Name $azurevm.Name -Status
@@ -31,10 +43,10 @@ function Get-Status
         $azurevmInstanceView | Add-Member -MemberType NoteProperty -Name 'HomelabResourceStatus' -Value $azurevmInstanceView.Statuses[1].Code
         $arc_homelab_resources += $azurevmInstanceView
     }
-    Write-Host 'Done!' -ForegroundColor Green
+    #Write-Host 'Done!' -ForegroundColor Green
 
-    Write-host 'Getting Arc Machine Status from Azure...'
-    $arcmachines = Get-AzConnectedMachine -ResourceGroupName $azureResourceGroupName
+    #Write-host 'Getting Arc Machine Status from Azure...'
+    #$arcmachines = Get-AzConnectedMachine -ResourceGroupName $azureResourceGroupName
     foreach ($arcmachine in $arcmachines)
     {
         $arcmachine | Add-Member -MemberType NoteProperty -Name 'HomelabResourceType' -Value 'ArcMachine'
@@ -68,39 +80,52 @@ function Get-Status
 
 function Start-VMs
 {
+    $jobs = @()
     Write-Host 'Starting Google Cloud VM(s)...'
-    $gceinstances = Get-GceInstance -Project $googleProjectName
+    #$gceinstances = Get-GceInstance -Project $googleProjectName
+    
     foreach($gceinstance in $gceinstances)
     {
-        Start-GceInstance $gceinstance 
+            $jobs += Start-ThreadJob {Start-GceInstance $using:gceinstance}
     }
-    Write-Host 'Done!' -ForegroundColor Green
+
+    #Write-Host 'Done!' -ForegroundColor Green
 
     Write-Host 'Starting Azure VM(s)...'
-    $azurevms = Get-AzVM -ResourceGroupName $azureResourceGroupName
+    #$azurevms = Get-AzVM -ResourceGroupName $azureResourceGroupName
+
     foreach($azurevm in $azurevms)
     {
-       Start-AzVM -ResourceGroupName $azureResourceGroupName -Name $azurevm.Name
+        $azurevmname = $azurevm.Name
+        $jobs += Start-ThreadJob {Start-AzVM -ResourceGroupName $using:azureResourceGroupName -Name $using:azurevmname}
     }
+    
+    #Write-Host 'Done!' -ForegroundColor Green
+    Wait-Job -Job $jobs | Out-Null
     Write-Host 'Done!' -ForegroundColor Green
+
 }
 
 function Stop-VMs
 {
+    $jobs = @()
     Write-Host 'Stopping Google Cloud VM(s)...'
-    $gceinstances = Get-GceInstance -Project $googleProjectName
+    #$gceinstances = Get-GceInstance -Project $googleProjectName
     foreach($gceinstance in $gceinstances)
     {
-        Stop-GceInstance $gceinstance 
+        $jobs += Start-ThreadJob {Stop-GceInstance $using:gceinstance}
     }
-    Write-Host 'Done!' -ForegroundColor Green
+    #Write-Host 'Done!' -ForegroundColor Green
 
     Write-Host 'Stopping Azure VM(s)...'
-    $azurevms = Get-AzVM -ResourceGroupName $azureResourceGroupName
+    #$azurevms = Get-AzVM -ResourceGroupName $azureResourceGroupName
     foreach($azurevm in $azurevms)
     {
-       Stop-AzVM -ResourceGroupName $azureResourceGroupName -Name $azurevm.Name -Force
+        $azurevmname = $azurevm.Name
+        $jobs += Start-ThreadJob {Stop-AzVM -ResourceGroupName $using:azureResourceGroupName -Name $using:azurevmname -Force}
     }
+    
+    Wait-Job -Job $jobs | Out-Null
     Write-Host 'Done!' -ForegroundColor Green
 }
 
